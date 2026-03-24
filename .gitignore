@@ -35,5 +35,4 @@ htmlcov/
 Thumbs.db
 
 # Copilot files
-.github/*
 .chats/*

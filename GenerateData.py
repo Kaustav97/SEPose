@@ -31,11 +31,9 @@ except IndexError:
     pass
 
 sys.path.append("../")
-from draw_skeleton import (get_screen_points, draw_skeleton,
-                           draw_points_on_buffer)
+from draw_skeleton import get_screen_points, draw_skeleton
 
 import carla
-from carla import VehicleLightState as vls
 
 # Constants
 OUT_DIR = ""
@@ -815,10 +813,6 @@ def main() -> None:
         description=__doc__)
 
     argparser.add_argument(
-        '--map_name',        
-        default='town05' )
-
-    argparser.add_argument(
         '--host',
         metavar='H',
         default='127.0.0.1',
@@ -951,7 +945,7 @@ def main() -> None:
         
         client.load_world(MAP_NAME)
         world = client.get_world()
-        world.set_weather(weather_twilight)
+        world.set_weather(generate_random_weather())
 
         traffic_manager = client.get_trafficmanager(args.tm_port)
         traffic_manager.set_global_distance_to_leading_vehicle(2.5)
@@ -1021,7 +1015,7 @@ def main() -> None:
         )
         
         (camera, camera_rgb, image_queue, rgb_image_queue,
-         image_w, image_h, fov, K) = spawn_cameras(world, MAP_NAME)
+         image_w, image_h, _, K) = spawn_cameras(world, MAP_NAME)
         
         # Get pedestrian actors for pose generation
         peds = [x for x in world.get_actors() if 'pedestrian' in x.type_id]
@@ -1075,7 +1069,7 @@ def main() -> None:
                 )
                 
                 (camera, camera_rgb, image_queue, rgb_image_queue,
-                 image_w, image_h, fov, K) = spawn_cameras(
+                 image_w, image_h, _, K) = spawn_cameras(
                     world, MAP_NAME
                 )
                 
