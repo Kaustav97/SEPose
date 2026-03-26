@@ -43,7 +43,7 @@ This repository provides tools to:
 
 ```bash
 # Clone repository
-git clone https://github.com/[your-repo]/eventpose.git
+git clone https://github.com/Kaustav97/SEPose.git 
 cd eventpose
 
 # Install dependencies
