@@ -1,11 +1,13 @@
-# EventPose: Multi-Human Pose Estimation from Event Camera Data
+# SEPOSE: SEPose: A Synthetic Event-based Human Pose Estimation Dataset for Pedestrian Monitoring
 
-A synthetic dataset generation pipeline for multi-human pose estimation using CARLA simulator. Supports both RGB and Dynamic Vision Sensor (DVS) event camera modalities.
+<figure>
+  <img src="images/weathers.png" width="100%" />
+  <figcaption>Summary of the maps within CARLA used to generate SEPose data</figcaption>
+</figure>
 
-> **Paper**: [Title TBD]  
-> **Authors**: [Authors TBD]
+A synthetic data generation pipeline for multi-human pose estimation using CARLA simulator from the POV of fixed traffic cameras spanning busy and light crowds and traffic caross diverse traffic and weather conditions in urban, suburban, and rural settings.
 
----
+Supports both RGB and Dynamic Vision Sensor (DVS) event camera modalities.
 
 ## Overview
 
@@ -46,12 +48,9 @@ cd eventpose
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Download CARLA 0.9.15 (if not already installed)
-# https://github.com/carla-simulator/carla/releases/tag/0.9.15
 ```
+Install the CARLA Simulator from https://carla.org/ to setup the CARLA server from precompiled binaries or the docker image.
 
----
 
 ## Data Generation
 
@@ -98,9 +97,9 @@ All simulation parameters are controlled via YAML configuration files in `config
 # configs/default.yaml
 
 simulation:
-  num_frames: 12000              # Total frames to capture
-  weather_reset_interval: 20     # Seconds between scene resets
-  data_collection_cooldown: 5.0  # Skip frames after reset
+  num_frames: 15000             # Total frames to capture
+  weather_reset_interval: 300   # Seconds between scene resets
+  data_collection_cooldown: 5.0 # Skip frames after reset to avoid artifacts
 
 actors:
   vehicles:
@@ -122,7 +121,7 @@ camera:
 weather_presets:
   sunny: { cloudiness: 10.0, precipitation: 0.0, ... }
   rainy: { cloudiness: 90.0, precipitation: 70.0, ... }
-  # ... 7 presets total
+  # ... other weather presets
 ```
 
 ### CLI Arguments
@@ -142,7 +141,7 @@ CLI arguments override config file values.
 
 ## Dataset Preparation
 
-Convert raw data to YOLO training format:
+Convert raw data to YOLO training format (uses symlinks by default to save space):
 
 ```bash
 # For event camera data
@@ -216,12 +215,12 @@ yolo pose train \
     imgsz=640
 ```
 
-### Training Tips
+<!-- ### Training Tips
 
 - **Batch size**: Reduce if OOM (e.g., `batch=8`)
 - **Image size**: Default 640, increase for better accuracy
 - **Pretrained weights**: Start from COCO-pretrained for faster convergence
-- **Augmentation**: YOLO applies mosaic, mixup, HSV augmentation by default
+- **Augmentation**: YOLO applies mosaic, mixup, HSV augmentation by default -->
 
 ---
 
@@ -275,19 +274,20 @@ eventpose/
 ## Citation
 
 ```bibtex
-@article{eventpose2024,
-  title={EventPose: Multi-Human Pose Estimation from Event Cameras},
-  author={[Authors]},
-  journal={[Journal/Conference]},
-  year={2024}
+@article{chanda2025seposesyntheticeventbasedhuman,
+      title={SEPose: A Synthetic Event-based Human Pose Estimation Dataset for Pedestrian Monitoring}, 
+      author={Kaustav Chanda and Aayush Atul Verma and Arpitsinh Vaghela and Yezhou Yang and Bharatesh Chakravarthi},
+      year={2025},
+      eprint={2507.11910},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2507.11910},
 }
 ```
 
----
+<!-- ## License
 
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details. -->
 
 ## Acknowledgments
 
