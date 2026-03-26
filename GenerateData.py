@@ -16,7 +16,7 @@ import os
 import queue
 import sys
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -28,9 +28,13 @@ except Exception as e:
     print(e)
 
 from draw_skeleton import get_screen_points, draw_skeleton
+from config import load_config, apply_cli_overrides, get_nested
 import carla
 
-# Constants
+# Global config (loaded in main)
+CONFIG: Dict[str, Any] = {}
+
+# Constants (not configurable)
 OUT_DIR = ""
 KEYPOINTS = [
     "crl_Head__C", "crl_eye__R", "crl_eye__L", "crl_shoulder__R",
@@ -39,8 +43,6 @@ KEYPOINTS = [
     "crl_leg__R", "crl_leg__L", "crl_foot__R", "crl_foot__L"
 ]
 NUM_KEYPOINTS = len(KEYPOINTS)
-BBOX_PADDING = 0.1
-WEATHER_RESET_INTERVAL = 20  # 5 minutes in seconds
 
 
 def check_keypoint_visibility(
@@ -72,7 +74,7 @@ def compute_bbox_from_keypoints(
     visibility: np.ndarray,
     image_w: int,
     image_h: int,
-    padding: float = BBOX_PADDING
+    padding: float = None
 ) -> Optional[Tuple[float, float, float, float]]:
     """Compute normalized bounding box from visible keypoints.
     
@@ -81,12 +83,14 @@ def compute_bbox_from_keypoints(
         visibility: Array of shape (N,) with visibility flags
         image_w: Image width in pixels
         image_h: Image height in pixels
-        padding: Padding ratio to add around bounding box (default 0.1)
+        padding: Padding ratio to add around bounding box (uses config if None)
     
     Returns:
         Tuple of (x_center, y_center, width, height) normalized to [0, 1]
         Returns None if no visible keypoints
     """
+    if padding is None:
+        padding = get_nested(CONFIG, 'pose', 'bbox_padding', default=0.1)
     # Filter visible keypoints only
     visible_mask = visibility > 0
     if not np.any(visible_mask):
@@ -133,42 +137,24 @@ def getCamXforms(map_name: str) -> Tuple[carla.Location, carla.Rotation]:
         Tuple of (Location, Rotation) for camera placement
     
     Raises:
-        ValueError: If map_name is not supported
+        ValueError: If map_name is not supported in config
     """
-    camera_transforms = {
-        'Town03': (
-            carla.Location(x=71.634972, y=-213.649551, z=0.151049),
-            carla.Rotation(pitch=0.000000, yaw=-87.941040, roll=0.000000)
-        ),
-        'Town04': (
-            carla.Location(x=193.145935, y=-257.109344, z=6.300411),
-            carla.Rotation(pitch=-30.599081, yaw=49.880680, roll=0.000091)
-        ),
-        'Town05': (
-            carla.Location(x=-175.693878, y=76.624390, z=5.408956),
-            carla.Rotation(pitch=-16.103148, yaw=137.193390, roll=0.000127)
-        ),
-        'Town07': (
-            carla.Location(x=8.499461, y=4.675543, z=1.850266),
-            carla.Rotation(pitch=3.275424, yaw=-145.442154, roll=0.000480)
-        ),
-        'Town07_Opt': (
-            carla.Location(x=3.249976, y=5.709602, z=2.096144),
-            carla.Rotation(pitch=-19.308350, yaw=-141.595810, roll=0.000442)
-        ),
-        'Town10HD': (
-            carla.Location(x=-35.280499, y=-0.017508, z=1.532597),
-            carla.Rotation(pitch=4.182043, yaw=130.544815, roll=0.000170)
-        ),
-    }
+    transforms = get_nested(CONFIG, 'camera', 'transforms', default={})
     
-    if map_name not in camera_transforms:
-        supported_maps = ', '.join(camera_transforms.keys())
+    if map_name not in transforms:
+        supported_maps = ', '.join(transforms.keys())
         raise ValueError(
             f"Unsupported map: '{map_name}'. Supported maps: {supported_maps}"
         )
     
-    return camera_transforms[map_name]
+    t = transforms[map_name]
+    loc = t['location']
+    rot = t['rotation']
+    
+    return (
+        carla.Location(x=loc['x'], y=loc['y'], z=loc['z']),
+        carla.Rotation(pitch=rot['pitch'], yaw=rot['yaw'], roll=rot['roll'])
+    )
 
 
 def GenerateGTPose(
@@ -193,13 +179,16 @@ def GenerateGTPose(
     """
     buf = np.zeros((image_h, image_w, 3), dtype=np.uint8)
     yolo_annotations = []
+    max_ped_distance = get_nested(
+        CONFIG, 'simulation', 'max_pedestrian_distance', default=50.0
+    )
     
     for ped in peds:
         try:
             dist = ped.get_transform().location.distance(
                 camera.get_transform().location
             )
-            if dist >= 50.0:
+            if dist >= max_ped_distance:
                 continue
             
             forward_vec = camera.get_transform().get_forward_vector()
@@ -356,86 +345,11 @@ def generate_random_weather() -> carla.WeatherParameters:
     Returns:
         carla.WeatherParameters with randomized weather settings
     """
-    # Define weather templates
-    weather_templates = {
-        'sunny': {
-            'cloudiness': 10.0,
-            'precipitation': 0.0,
-            'precipitation_deposits': 0.0,
-            'sun_altitude_angle': 45.0,
-            'sun_azimuth_angle': 90.0,
-            'wind_intensity': 5.0,
-            'fog_density': 0.0,
-            'fog_distance': 0.0,
-            'wetness': 0.0,
-        },
-        'cloudy': {
-            'cloudiness': 60.0,
-            'precipitation': 0.0,
-            'precipitation_deposits': 0.0,
-            'sun_altitude_angle': 30.0,
-            'sun_azimuth_angle': 90.0,
-            'wind_intensity': 10.0,
-            'fog_density': 5.0,
-            'fog_distance': 50.0,
-            'wetness': 0.0,
-        },
-        'rainy': {
-            'cloudiness': 90.0,
-            'precipitation': 70.0,
-            'precipitation_deposits': 70.0,
-            'sun_altitude_angle': 10.0,
-            'sun_azimuth_angle': 90.0,
-            'wind_intensity': 30.0,
-            'fog_density': 10.0,
-            'fog_distance': 30.0,
-            'wetness': 70.0,
-        },
-        'foggy': {
-            'cloudiness': 30.0,
-            'precipitation': 0.0,
-            'precipitation_deposits': 0.0,
-            'sun_altitude_angle': 10.0,
-            'sun_azimuth_angle': 90.0,
-            'wind_intensity': 0.0,
-            'fog_density': 40.0,
-            'fog_distance': 10.0,
-            'wetness': 0.0,
-        },
-        'twilight': {
-            'cloudiness': 0.0,
-            'precipitation': 0.0,
-            'precipitation_deposits': 0.0,
-            'sun_altitude_angle': 5.0,
-            'sun_azimuth_angle': 30.0,
-            'wind_intensity': 0.0,
-            'fog_density': 0.0,
-            'fog_distance': 0.0,
-            'wetness': 0.0,
-        },
-        'night': {
-            'cloudiness': 20.0,
-            'precipitation': 0.0,
-            'precipitation_deposits': 0.0,
-            'sun_altitude_angle': -20.0,
-            'sun_azimuth_angle': 90.0,
-            'wind_intensity': 5.0,
-            'fog_density': 0.0,
-            'fog_distance': 0.0,
-            'wetness': 0.0,
-        },
-        'storm': {
-            'cloudiness': 100.0,
-            'precipitation': 90.0,
-            'precipitation_deposits': 80.0,
-            'sun_altitude_angle': 5.0,
-            'sun_azimuth_angle': 90.0,
-            'wind_intensity': 80.0,
-            'fog_density': 20.0,
-            'fog_distance': 20.0,
-            'wetness': 90.0,
-        },
-    }
+    weather_templates = get_nested(CONFIG, 'weather_presets', default={})
+    
+    if not weather_templates:
+        logging.warning("No weather presets in config, using clear weather")
+        return carla.WeatherParameters.ClearNoon
     
     # Randomly select a template
     template_name = random.choice(list(weather_templates.keys()))
@@ -495,7 +409,7 @@ def generate_random_weather() -> carla.WeatherParameters:
 def spawn_vehicles(
     world,
     client,
-    args,
+    config: Dict[str, Any],
     blueprints: List,
     spawn_points: List,
     traffic_manager,
@@ -506,7 +420,7 @@ def spawn_vehicles(
     Args:
         world: CARLA world object
         client: CARLA client
-        args: Command line arguments
+        config: Configuration dictionary
         blueprints: List of vehicle blueprints
         spawn_points: List of spawn point transforms
         traffic_manager: Traffic manager instance
@@ -520,10 +434,11 @@ def spawn_vehicles(
     FutureActor = carla.command.FutureActor
     
     batch = []
-    hero = args.hero
+    hero = get_nested(config, 'actors', 'vehicles', 'hero', default=False)
+    num_vehicles = get_nested(config, 'actors', 'vehicles', 'count', default=30)
     
     for n, transform in enumerate(spawn_points):
-        if n >= args.number_of_vehicles:
+        if n >= num_vehicles:
             break
         
         blueprint = random.choice(blueprints)
@@ -560,7 +475,7 @@ def spawn_vehicles(
             vehicles_list.append(response.actor_id)
     
     # Set automatic vehicle lights if specified
-    if args.car_lights_on:
+    if get_nested(config, 'actors', 'vehicles', 'car_lights_on', default=False):
         all_vehicle_actors = world.get_actors(vehicles_list)
         for actor in all_vehicle_actors:
             traffic_manager.update_vehicle_lights(actor, True)
@@ -572,7 +487,7 @@ def spawn_vehicles(
 def spawn_walkers(
     world,
     client,
-    args,
+    config: Dict[str, Any],
     blueprints: List
 ) -> Tuple[List[Dict], List[int]]:
     """Spawn pedestrians in the simulation world.
@@ -580,7 +495,7 @@ def spawn_walkers(
     Args:
         world: CARLA world object
         client: CARLA client
-        args: Command line arguments
+        config: Configuration dictionary
         blueprints: List of walker blueprints
     
     Returns:
@@ -590,16 +505,23 @@ def spawn_walkers(
     """
     SpawnActor = carla.command.SpawnActor
     
-    percentagePedestriansRunning = 0.0
-    percentagePedestriansCrossing = 0.0
+    percentagePedestriansRunning = get_nested(
+        config, 'actors', 'walkers', 'percentage_running', default=0.0
+    )
+    percentagePedestriansCrossing = get_nested(
+        config, 'actors', 'walkers', 'percentage_crossing', default=0.0
+    )
     
-    if args.seedw:
-        world.set_pedestrians_seed(args.seedw)
-        random.seed(args.seedw)
+    walker_seed = get_nested(config, 'actors', 'walkers', 'seed', default=0)
+    if walker_seed:
+        world.set_pedestrians_seed(walker_seed)
+        random.seed(walker_seed)
+    
+    walker_count = get_nested(config, 'actors', 'walkers', 'count', default=10)
     
     # Generate spawn points
     spawn_points = []
-    for i in range(args.number_of_walkers):
+    for i in range(walker_count):
         spawn_point = carla.Transform()
         loc = world.get_random_location_from_navigation()
         if loc is not None:
@@ -698,11 +620,29 @@ def spawn_cameras(
     """
     # DVS camera
     camera_bp = world.get_blueprint_library().find('sensor.camera.dvs')
-    camera_bp.set_attribute('positive_threshold', '0.7')
-    camera_bp.set_attribute('negative_threshold', '0.7')
-    camera_bp.set_attribute('sigma_positive_threshold', '0.7')
-    camera_bp.set_attribute('sigma_negative_threshold', '0.7')
-    camera_bp.set_attribute('refractory_period_ns', '330000')
+    
+    # Apply DVS settings from config
+    dvs_config = get_nested(CONFIG, 'camera', 'dvs', default={})
+    camera_bp.set_attribute(
+        'positive_threshold',
+        str(dvs_config.get('positive_threshold', '0.7'))
+    )
+    camera_bp.set_attribute(
+        'negative_threshold',
+        str(dvs_config.get('negative_threshold', '0.7'))
+    )
+    camera_bp.set_attribute(
+        'sigma_positive_threshold',
+        str(dvs_config.get('sigma_positive_threshold', '0.7'))
+    )
+    camera_bp.set_attribute(
+        'sigma_negative_threshold',
+        str(dvs_config.get('sigma_negative_threshold', '0.7'))
+    )
+    camera_bp.set_attribute(
+        'refractory_period_ns',
+        str(dvs_config.get('refractory_period_ns', '330000'))
+    )
     
     camera_dvs = world.spawn_actor(camera_bp, carla.Transform())
     cam_loc, cam_rot = getCamXforms(map_name)
@@ -834,64 +774,41 @@ def main() -> None:
     
     Spawns vehicles and pedestrians in CARLA, captures DVS and RGB images,
     generates ground truth pose annotations in YOLO format, and resets
-    the simulation every 5 minutes with new random weather.
+    the simulation periodically with new random weather.
     """
+    global CONFIG
+    
     argparser = argparse.ArgumentParser(
         description=__doc__)
 
+    # Config file argument (processed first)
     argparser.add_argument(
-        '--host',
-        metavar='H',
-        default='localhost',
-        help='IP of the host server (default: 127.0.0.1)')
-    argparser.add_argument(
-        '-p', '--port',
-        metavar='P',
-        default=2000,
-        type=int,
-        help='TCP port to listen to (default: 2000)')
+        '--config',
+        metavar='PATH',
+        default='configs/default.yaml',
+        help='Path to YAML config file (default: configs/default.yaml)')
     argparser.add_argument(
         '-n', '--number-of-vehicles',
         metavar='N',
-        default=30,
+        default=None,
         type=int,
-        help='Number of vehicles (default: 30)')
+        help='Number of vehicles (overrides config)')
     argparser.add_argument(
         '-w', '--number-of-walkers',
         metavar='W',
-        default=10,
+        default=None,
         type=int,
-        help='Number of walkers (default: 10)')
+        help='Number of walkers (overrides config)')
     argparser.add_argument(
         '--safe',
         action='store_true',
         help='Avoid spawning vehicles prone to accidents')
     argparser.add_argument(
-        '--filterv',
-        metavar='PATTERN',
-        default='vehicle.*',
-        help='Filter vehicle model (default: "vehicle.*")')
-    argparser.add_argument(
-        '--generationv',
-        metavar='G',
-        default='All',
-        help='restrict to certain vehicle generation (values: "1","2","All" - default: "All")')
-    argparser.add_argument(
-        '--filterw',
-        metavar='PATTERN',
-        default='walker.pedestrian.*',
-        help='Filter pedestrian type (default: "walker.pedestrian.*")')
-    argparser.add_argument(
-        '--generationw',
-        metavar='G',
-        default='2',
-        help='restrict to certain pedestrian generation (values: "1","2","All" - default: "2")')
-    argparser.add_argument(
         '--tm-port',
         metavar='P',
-        default=8000,
+        default=None,
         type=int,
-        help='Port to communicate with TM (default: 8000)')
+        help='Port to communicate with TM (overrides config)')
     argparser.add_argument(
         '--asynch',
         action='store_true',
@@ -908,41 +825,36 @@ def main() -> None:
     argparser.add_argument(
         '--seedw',
         metavar='S',
-        default=0,
+        default=None,
         type=int,
-        help='Set the seed for pedestrians module')
-    argparser.add_argument(
-        '--car-lights-on',
-        action='store_true',
-        default=False,
-        help='Enable automatic car light management')
-    argparser.add_argument(
-        '--hero',
-        action='store_true',
-        default=False,
-        help='Set one of the vehicles as hero')
-    argparser.add_argument(
-        '--respawn',
-        action='store_true',
-        default=False,
-        help='Automatically respawn dormant vehicles (only in large maps)')
-    argparser.add_argument(
-        '--no-rendering',
-        action='store_true',
-        default=False,
-        help='Activate no rendering mode')
+        help='Set the seed for pedestrians module (overrides config)')
     argparser.add_argument(
         '--out-dir',        
         help='Output directory')
 
     args = argparser.parse_args()
+    
+    # Load config and apply CLI overrides
+    logging.basicConfig(
+        format='%(levelname)s: %(message)s', level=logging.INFO
+    )
+    
+    CONFIG = load_config(args.config)
+    CONFIG = apply_cli_overrides(CONFIG, args)
+    logging.info(f"Loaded config from: {args.config}")
 
     global OUT_DIR
-    MAP_NAME = 'Town10HD'
+    # MAP_NAME = 'Town10HD'
+    MAP_NAME = get_nested(CONFIG, 'carla', 'map', default='Town10HD')
     logging.info(f"Using map: {MAP_NAME}")
-    assert args.out_dir is not None, "Please specify an output directory"
-    OUT_DIR = f"{args.out_dir}/{MAP_NAME}"
-    # OUT_DIR = f"/home/local/ASUAD/kchanda3/carlaScripts/{MAP_NAME}"
+    
+    # Get output directory from config or CLI
+    out_dir = get_nested(CONFIG, 'output', 'directory', default='')
+    if args.out_dir is not None:
+        out_dir = args.out_dir
+    assert out_dir, "Please specify an output directory via --out-dir or config"
+    
+    OUT_DIR = f"{out_dir}/{MAP_NAME}"
     os.makedirs(OUT_DIR, exist_ok=True)
 
     for dirname in ['events', 'RGB', 'GT', 'Annot']:
@@ -956,37 +868,40 @@ def main() -> None:
             except Exception as e:
                 logging.warning(f"Could not remove {file}: {e}")
 
-    logging.basicConfig(
-        format='%(levelname)s: %(message)s', level=logging.INFO
-    )
-
     vehicles_list = []
     walkers_list = []
     all_id = []
-    # client = carla.Client(args.host, args.port)
-    client = carla.Client('localhost', 2000)
+    
+    # Get CARLA connection from config
+    host = get_nested(CONFIG, 'carla', 'host', default='localhost')
+    port = get_nested(CONFIG, 'carla', 'port', default=2000)
+    client = carla.Client(host, port)
     client.set_timeout(40.0)
     synchronous_master = False
-    random.seed(args.seed if args.seed is not None else int(time.time()))
+    
+    seed = get_nested(CONFIG, 'carla', 'seed', default=None)
+    random.seed(seed if seed is not None else int(time.time()))
 
     try:        
         client.load_world(MAP_NAME)
-        # client.set_timeout(10.0)
         world = client.get_world()
         world.set_weather(generate_random_weather())
 
-        traffic_manager = client.get_trafficmanager(args.tm_port)
+        tm_port = get_nested(CONFIG, 'carla', 'tm_port', default=8000)
+        traffic_manager = client.get_trafficmanager(tm_port)
         traffic_manager.set_global_distance_to_leading_vehicle(2.5)
-        if args.respawn:
+        
+        if get_nested(CONFIG, 'actors', 'vehicles', 'respawn', default=False):
             traffic_manager.set_respawn_dormant_vehicles(True)
-        if args.hybrid:
+        if get_nested(CONFIG, 'carla', 'hybrid', default=False):
             traffic_manager.set_hybrid_physics_mode(True)
             traffic_manager.set_hybrid_physics_radius(70.0)
-        if args.seed is not None:
-            traffic_manager.set_random_device_seed(args.seed)
+        if seed is not None:
+            traffic_manager.set_random_device_seed(seed)
 
         settings = world.get_settings()
-        if not args.asynch:
+        asynch_mode = get_nested(CONFIG, 'carla', 'asynch', default=False)
+        if not asynch_mode:
             traffic_manager.set_synchronous_mode(True)
             if not settings.synchronous_mode:
                 synchronous_master = True
@@ -999,14 +914,20 @@ def main() -> None:
             you could experience some issues. If it's not working correctly, switch to synchronous \
             mode by using traffic_manager.set_synchronous_mode(True)")
 
-        if args.no_rendering:
+        if get_nested(CONFIG, 'carla', 'no_rendering', default=False):
             settings.no_rendering_mode = True
         world.apply_settings(settings)
 
-        blueprints = get_actor_blueprints(world, args.filterv, args.generationv)
-        blueprintsWalkers = get_actor_blueprints(world, args.filterw, args.generationw)
+        # Get actor blueprints from config
+        vehicle_filter = get_nested(CONFIG, 'actors', 'vehicles', 'filter', default='vehicle.*')
+        vehicle_gen = get_nested(CONFIG, 'actors', 'vehicles', 'generation', default='All')
+        walker_filter = get_nested(CONFIG, 'actors', 'walkers', 'filter', default='walker.pedestrian.*')
+        walker_gen = get_nested(CONFIG, 'actors', 'walkers', 'generation', default='2')
+        
+        blueprints = get_actor_blueprints(world, vehicle_filter, vehicle_gen)
+        blueprintsWalkers = get_actor_blueprints(world, walker_filter, walker_gen)
 
-        if args.safe:
+        if get_nested(CONFIG, 'actors', 'vehicles', 'safe', default=False):
             blueprints = [x for x in blueprints if int(x.get_attribute('number_of_wheels')) == 4]
             blueprints = [x for x in blueprints if not x.id.endswith('microlino')]
             blueprints = [x for x in blueprints if not x.id.endswith('carlacola')]
@@ -1020,13 +941,14 @@ def main() -> None:
 
         spawn_points = world.get_map().get_spawn_points()
         number_of_spawn_points = len(spawn_points)
-
-        if args.number_of_vehicles < number_of_spawn_points:
+        
+        num_vehicles = get_nested(CONFIG, 'actors', 'vehicles', 'count', default=30)
+        if num_vehicles < number_of_spawn_points:
             random.shuffle(spawn_points)
-        elif args.number_of_vehicles > number_of_spawn_points:
+        elif num_vehicles > number_of_spawn_points:
             msg = 'requested %d vehicles, but could only find %d spawn points'
-            logging.warning(msg, args.number_of_vehicles, number_of_spawn_points)
-            args.number_of_vehicles = number_of_spawn_points
+            logging.warning(msg, num_vehicles, number_of_spawn_points)
+            num_vehicles = number_of_spawn_points
 
         # Initial weather setup
         initial_weather = generate_random_weather()
@@ -1034,12 +956,12 @@ def main() -> None:
         
         # Spawn actors using refactored functions
         vehicles_list = spawn_vehicles(
-            world, client, args, blueprints, spawn_points,
+            world, client, CONFIG, blueprints, spawn_points,
             traffic_manager, synchronous_master
         )
         
         walkers_list, all_id = spawn_walkers(
-            world, client, args, blueprintsWalkers
+            world, client, CONFIG, blueprintsWalkers
         )
         
         (camera, camera_rgb, image_queue, rgb_image_queue,
@@ -1049,7 +971,7 @@ def main() -> None:
         peds = [x for x in world.get_actors() if 'pedestrian' in x.type_id]
 
         # Wait for a tick to ensure client receives last transforms
-        if args.asynch or not synchronous_master:
+        if asynch_mode or not synchronous_master:
             world.wait_for_tick()
         else:
             world.tick()
@@ -1058,20 +980,28 @@ def main() -> None:
               f'{len(walkers_list)} walkers. Press Ctrl+C to exit.')
 
         # Traffic Manager parameters
-        traffic_manager.global_percentage_speed_difference(30.0)
+        tm_speed_diff = get_nested(
+            CONFIG, 'traffic_manager', 'global_speed_difference', default=30.0
+        )
+        traffic_manager.global_percentage_speed_difference(tm_speed_diff)
 
         # Initialize simulation timer for weather resets
         simulation_start_time = time.time()
-        num_frames = 12000
+        num_frames = get_nested(CONFIG, 'simulation', 'num_frames', default=12000)
         
-        # Data collection cooldown after setup/reset (5 seconds)
-        DATA_COLLECTION_COOLDOWN = 5.0
+        # Data collection cooldown after setup/reset
+        data_collection_cooldown = get_nested(
+            CONFIG, 'simulation', 'data_collection_cooldown', default=5.0
+        )
+        weather_reset_interval = get_nested(
+            CONFIG, 'simulation', 'weather_reset_interval', default=20
+        )
         last_reset_time = time.time()
         
         while num_frames >= 0:
-            # Check if 5 minutes have elapsed for weather reset
+            # Check if reset interval has elapsed
             elapsed_time = time.time() - simulation_start_time
-            if elapsed_time >= WEATHER_RESET_INTERVAL:
+            if elapsed_time >= weather_reset_interval:
                 logging.info(
                     f"Resetting simulation after {elapsed_time:.1f} seconds"
                 )
@@ -1091,13 +1021,13 @@ def main() -> None:
                 random.shuffle(vehicle_spawn_points)
                 
                 vehicles_list = spawn_vehicles(
-                    world, client, args, blueprints,
+                    world, client, CONFIG, blueprints,
                     vehicle_spawn_points, traffic_manager,
                     synchronous_master
                 )
                 
                 walkers_list, all_id = spawn_walkers(
-                    world, client, args, blueprintsWalkers
+                    world, client, CONFIG, blueprintsWalkers
                 )
                 
                 (camera, camera_rgb, image_queue, rgb_image_queue,
@@ -1115,7 +1045,7 @@ def main() -> None:
                 simulation_start_time = time.time()
                 
                 # Wait for tick after reset
-                if args.asynch or not synchronous_master:
+                if asynch_mode or not synchronous_master:
                     world.wait_for_tick()
                 else:
                     world.tick()
@@ -1126,7 +1056,7 @@ def main() -> None:
                 last_reset_time = time.time()
             
             # Normal simulation tick
-            if not args.asynch and synchronous_master:
+            if not asynch_mode and synchronous_master:
                 world.tick()
             else:
                 world.wait_for_tick()
@@ -1136,7 +1066,7 @@ def main() -> None:
             rgb_image = rgb_image_queue.get()
             
             # Skip data collection during cooldown period after reset
-            if time.time() - last_reset_time < DATA_COLLECTION_COOLDOWN:
+            if time.time() - last_reset_time < data_collection_cooldown:
                 continue
             
             # Process and save data
@@ -1147,7 +1077,7 @@ def main() -> None:
 
     finally:
         # Clean up simulation settings
-        if not args.asynch and synchronous_master:
+        if not asynch_mode and synchronous_master:
             settings = world.get_settings()
             settings.synchronous_mode = False
             settings.no_rendering_mode = False

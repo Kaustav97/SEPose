@@ -1,0 +1,144 @@
+# CARLA Pose Data Generation Configuration
+# ==========================================
+# This file controls all simulation parameters for reproducible data generation.
+# CLI arguments override these values when specified.
+
+simulation:
+  num_frames: 12000                    # Total frames to capture
+  weather_reset_interval: 20           # Seconds between weather/actor resets
+  data_collection_cooldown: 5.0        # Seconds to skip after reset
+  max_pedestrian_distance: 50.0        # Max distance for pedestrian processing
+
+carla:
+  map: "Town10HD"                       # CARLA map to load
+  host: "localhost"
+  port: 2000
+  tm_port: 8000
+  asynch: false
+  hybrid: false
+  no_rendering: false
+
+actors:
+  vehicles:
+    count: 30
+    filter: "vehicle.*"
+    generation: "All"                  # "1", "2", or "All"
+    safe: false                        # Avoid accident-prone vehicles
+    car_lights_on: true
+    hero: false
+    respawn: false                     # Respawn dormant vehicles (large maps)
+  walkers:
+    count: 10
+    filter: "walker.pedestrian.*"
+    generation: "2"                    # "1", "2", or "All"
+    seed: 0
+    percentage_running: 0.0
+    percentage_crossing: 0.0
+
+traffic_manager:
+  global_speed_difference: 30.0        # Speed reduction percentage
+
+pose:
+  bbox_padding: 0.1                    # Bounding box padding factor
+
+camera:
+  dvs:
+    positive_threshold: "0.7"
+    negative_threshold: "0.7"
+    sigma_positive_threshold: "0.7"
+    sigma_negative_threshold: "0.7"
+    refractory_period_ns: "330000"
+  transforms:
+    Town03:
+      location: {x: 71.634972, y: -213.649551, z: 0.151049}
+      rotation: {pitch: 0.0, yaw: -87.941040, roll: 0.0}
+    Town04:
+      location: {x: 193.145935, y: -257.109344, z: 6.300411}
+      rotation: {pitch: -30.599081, yaw: 49.880680, roll: 0.000091}
+    Town05:
+      location: {x: -175.693878, y: 76.624390, z: 5.408956}
+      rotation: {pitch: -16.103148, yaw: 137.193390, roll: 0.000127}
+    Town07:
+      location: {x: 8.499461, y: 4.675543, z: 1.850266}
+      rotation: {pitch: 3.275424, yaw: -145.442154, roll: 0.000480}
+    Town07_Opt:
+      location: {x: 3.249976, y: 5.709602, z: 2.096144}
+      rotation: {pitch: -19.308350, yaw: -141.595810, roll: 0.000442}
+    Town10HD:
+      location: {x: -35.280499, y: -0.017508, z: 1.532597}
+      rotation: {pitch: 4.182043, yaw: 130.544815, roll: 0.000170}
+
+weather_presets:
+  sunny:
+    cloudiness: 10.0
+    precipitation: 0.0
+    precipitation_deposits: 0.0
+    sun_altitude_angle: 45.0
+    sun_azimuth_angle: 90.0
+    wind_intensity: 5.0
+    fog_density: 0.0
+    fog_distance: 0.0
+    wetness: 0.0
+  cloudy:
+    cloudiness: 60.0
+    precipitation: 0.0
+    precipitation_deposits: 0.0
+    sun_altitude_angle: 30.0
+    sun_azimuth_angle: 90.0
+    wind_intensity: 10.0
+    fog_density: 5.0
+    fog_distance: 50.0
+    wetness: 0.0
+  rainy:
+    cloudiness: 90.0
+    precipitation: 70.0
+    precipitation_deposits: 70.0
+    sun_altitude_angle: 10.0
+    sun_azimuth_angle: 90.0
+    wind_intensity: 30.0
+    fog_density: 10.0
+    fog_distance: 30.0
+    wetness: 70.0
+  foggy:
+    cloudiness: 30.0
+    precipitation: 0.0
+    precipitation_deposits: 0.0
+    sun_altitude_angle: 10.0
+    sun_azimuth_angle: 90.0
+    wind_intensity: 0.0
+    fog_density: 40.0
+    fog_distance: 10.0
+    wetness: 0.0
+  twilight:
+    cloudiness: 0.0
+    precipitation: 0.0
+    precipitation_deposits: 0.0
+    sun_altitude_angle: 5.0
+    sun_azimuth_angle: 30.0
+    wind_intensity: 0.0
+    fog_density: 0.0
+    fog_distance: 0.0
+    wetness: 0.0
+  night:
+    cloudiness: 20.0
+    precipitation: 0.0
+    precipitation_deposits: 0.0
+    sun_altitude_angle: -20.0
+    sun_azimuth_angle: 90.0
+    wind_intensity: 5.0
+    fog_density: 0.0
+    fog_distance: 0.0
+    wetness: 0.0
+  storm:
+    cloudiness: 100.0
+    precipitation: 90.0
+    precipitation_deposits: 80.0
+    sun_altitude_angle: 5.0
+    sun_azimuth_angle: 90.0
+    wind_intensity: 80.0
+    fog_density: 20.0
+    fog_distance: 20.0
+    wetness: 90.0
+
+output:
+  directory: ""                        # Override via --out-dir CLI
