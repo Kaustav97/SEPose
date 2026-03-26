@@ -300,7 +300,8 @@ def ProcessDVSImage(image) -> None:
     array2 = copy.deepcopy(dvs_img)
 
     cv2.imwrite(f"{OUT_DIR}/events/{image.frame}.png", array2)
-    print(f"{OUT_DIR}/events/{image.frame}.png")
+    # print(f"{OUT_DIR}/events/{image.frame}.png")
+    logging.debug(f"Saved DVS image: {OUT_DIR}/events/{image.frame}.png")
 
 
 def ProcessRGBImage(image) -> None:
@@ -316,6 +317,7 @@ def ProcessRGBImage(image) -> None:
     # make the array writeable doing a deep copy
     array2 = copy.deepcopy(array)
     cv2.imwrite(f"{OUT_DIR}/RGB/{image.frame}_RGB.png", array2)
+    logging.debug(f"Saved RGB image: {OUT_DIR}/RGB/{image.frame}_RGB.png")
 
 def build_projection_matrix(w: int, h: int, fov: float) -> np.ndarray:
     """Build camera projection matrix from intrinsic parameters.
@@ -861,7 +863,7 @@ def main() -> None:
         os.makedirs(f"{OUT_DIR}/{dirname}", exist_ok=True)
 
     # Clean up old data
-    for dirname in ['events', 'RGB', 'GT']:
+    for dirname in ['events', 'RGB', 'GT', 'Annot']:
         for file in glob.glob(f"{OUT_DIR}/{dirname}/*"):
             try:
                 os.remove(file)
