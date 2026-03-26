@@ -38,6 +38,7 @@ Thumbs.db
 .chats/*
 .reports/
 *.png
+.github
 
 #Dataset files
 DATA/
