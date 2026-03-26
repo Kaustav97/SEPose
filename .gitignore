@@ -41,3 +41,8 @@ Thumbs.db
 
 #Dataset files
 DATA/
+yolo_data/
+
+# Training outputs/ model checkpoints
+runs/
+*.pt
