@@ -40,7 +40,7 @@ KEYPOINTS = [
 ]
 NUM_KEYPOINTS = len(KEYPOINTS)
 BBOX_PADDING = 0.1
-WEATHER_RESET_INTERVAL = 300  # 5 minutes in seconds
+WEATHER_RESET_INTERVAL = 20  # 5 minutes in seconds
 
 
 def check_keypoint_visibility(
@@ -965,13 +965,13 @@ def main() -> None:
     all_id = []
     # client = carla.Client(args.host, args.port)
     client = carla.Client('localhost', 2000)
-    # client.set_timeout(10.0)
+    client.set_timeout(40.0)
     synchronous_master = False
     random.seed(args.seed if args.seed is not None else int(time.time()))
 
-    try:
-        
-        # client.load_world(MAP_NAME)
+    try:        
+        client.load_world(MAP_NAME)
+        # client.set_timeout(10.0)
         world = client.get_world()
         world.set_weather(generate_random_weather())
 
@@ -1064,6 +1064,10 @@ def main() -> None:
         simulation_start_time = time.time()
         num_frames = 12000
         
+        # Data collection cooldown after setup/reset (5 seconds)
+        DATA_COLLECTION_COOLDOWN = 5.0
+        last_reset_time = time.time()
+        
         while num_frames >= 0:
             # Check if 5 minutes have elapsed for weather reset
             elapsed_time = time.time() - simulation_start_time
@@ -1117,6 +1121,9 @@ def main() -> None:
                     world.tick()
                 
                 logging.info("Simulation reset complete")
+                
+                # Reset data collection cooldown
+                last_reset_time = time.time()
             
             # Normal simulation tick
             if not args.asynch and synchronous_master:
@@ -1124,9 +1131,15 @@ def main() -> None:
             else:
                 world.wait_for_tick()
             
-            # Process images and generate ground truth
+            # Process images from queues (always consume to prevent backlog)
             image = image_queue.get()
             rgb_image = rgb_image_queue.get()
+            
+            # Skip data collection during cooldown period after reset
+            if time.time() - last_reset_time < DATA_COLLECTION_COOLDOWN:
+                continue
+            
+            # Process and save data
             ProcessDVSImage(image)
             ProcessRGBImage(rgb_image)
             GenerateGTPose(image, image_h, image_w, K, camera, peds)
