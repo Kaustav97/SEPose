@@ -37,7 +37,6 @@ Thumbs.db
 # Copilot files
 .chats/
 .reports/
-*.png
 .github
 
 #Dataset files
